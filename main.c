@@ -6,7 +6,7 @@
 #include "utils.h"
 
 #define LED_PIN PICO_DEFAULT_LED_PIN
-#define NUM_SMS 1
+#define NUM_SMS 2
 
 queue_t queue;
 
@@ -45,6 +45,27 @@ int Playground_Tick(int cur_state) {
     }
 }
 
+enum LED_STATES { LED_START, LED_TOGGLE };
+int LED_Tick(int cur_state) {
+    switch (cur_state) {
+        case LED_START:
+            gpio_put(LED_PIN, 0);
+            cur_state = LED_TOGGLE;
+            break;
+        case LED_TOGGLE:
+            cur_state = LED_TOGGLE;
+            break;
+    }
+
+    switch (cur_state) {
+        case LED_START:
+            break;
+        case LED_TOGGLE:
+            gpio_put(LED_PIN, ~gpio_get(LED_PIN));
+            break;
+    }
+}
+
 struct TaskStruct {
     int16_t period_ms;
     int32_t last_ms;
@@ -59,10 +80,19 @@ int main() {
     uint32_t last_ms = to_ms_since_boot(get_absolute_time());
 
     struct TaskStruct tasks[NUM_SMS];
-    tasks[0].period_ms = 1000;
+    // *** DONT FORGET TO MODIFY NUM_SMS ***
+
+    // Playground
+    tasks[0].period_ms = 100;
     tasks[0].last_ms = last_ms;
     tasks[0].tick_fn = Playground_Tick;
     tasks[0].cur_state = PG_START;
+
+    // LED Blinking
+    tasks[1].period_ms = 1000;
+    tasks[1].last_ms = last_ms;
+    tasks[1].tick_fn = LED_Tick;
+    tasks[1].cur_state = LED_START;
 
     while(1) {
         uint32_t cur_ms = to_ms_since_boot(get_absolute_time());
