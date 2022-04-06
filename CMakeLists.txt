@@ -9,8 +9,11 @@ pico_sdk_init()
 add_executable(main
         main.c
         usb_descriptors.c
+        src/utils.c
 )
 pico_add_extra_outputs(main)
 target_include_directories(main PUBLIC
-        ${CMAKE_CURRENT_LIST_DIR})
+        ${CMAKE_CURRENT_LIST_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
 target_link_libraries(main PUBLIC pico_stdlib tinyusb_device tinyusb_board)

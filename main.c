@@ -1,22 +1,12 @@
-/**
- * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
- *
- * SPDX-License-Identifier: BSD-3-Clause
- */
-
 #include <stdint.h>
 #include "pico/stdlib.h"
 #include "pico/util/queue.h"
 #include "tusb.h"
 #include "usb_descriptors.h"
+#include "utils.h"
 
 #define LED_PIN PICO_DEFAULT_LED_PIN
 #define POLL_PERIOD_MS 100
-
-struct MouseEvent {
-    uint8_t x;
-    uint8_t y;
-};
 
 queue_t queue;
 
@@ -28,20 +18,55 @@ void init() {
     queue_init(&queue, sizeof(struct MouseEvent), 10);
 }
 
+enum PG_STATES { PG_START, PG_WAIT, PG_SEND };
+int Playground_Tick(int cur_state) {
+    switch (cur_state) {
+        case PG_START:
+            cur_state = PG_WAIT;
+            break;
+        case PG_WAIT:
+            cur_state = PG_SEND;
+            break;
+        case PG_SEND:
+            cur_state = PG_WAIT;
+            break;
+    }
+
+    switch (cur_state) {
+        case PG_START:
+            break;
+        case PG_WAIT:
+            break;
+        case PG_SEND:
+            struct MouseEvent data = {
+                .keys = 0x00,
+                .x = 0,
+                .y = 0
+            };
+            sendMouseEvent(&queue, &data);
+            break;
+    }
+}
+
 int main() {
     init();
     tusb_init();
 
     uint32_t last_ms = to_ms_since_boot(get_absolute_time());
+
+    #define NUM_SMS 1
+    struct TaskStruct tasks[NUM_SMS];
+    tasks[0].period_ms = 100;
+    tasks[0].last_ms = last_ms;
+    tasks[0].tick_fn = Playground_Tick;
+    tasks[0].cur_state = PG_START;
+
     while(1) {
         uint32_t cur_ms = to_ms_since_boot(get_absolute_time());
-        if (cur_ms - last_ms > POLL_PERIOD_MS) {
-            struct MouseEvent data = {
-                .x = 10,
-                .y = 0
-            };
-            bool res = queue_try_add(&queue, &data);
-            last_ms = cur_ms;
+        
+        for (int i=0; i<NUM_SMS;i++) {
+            if (cur_ms - last_ms > tasks[i].period_ms)
+                tasks[i].cur_state = tasks[i].tick_fn(tasks[i].cur_state);
         }
 
         // Process mouse movement items in the queue
@@ -50,7 +75,7 @@ int main() {
             struct MouseEvent data;
             queue_try_remove(&queue, &data);
 
-            tud_hid_mouse_report(REPORT_ID_MOUSE, 0x00, data.x, data.y, 0, 0);
+            tud_hid_mouse_report(REPORT_ID_MOUSE, data.keys, data.x, data.y, 0, 0);
         }
     }
 }
