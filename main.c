@@ -6,7 +6,7 @@
 #include "utils.h"
 
 #define LED_PIN PICO_DEFAULT_LED_PIN
-#define POLL_PERIOD_MS 100
+#define NUM_SMS 1
 
 queue_t queue;
 
@@ -20,6 +20,7 @@ void init() {
 
 enum PG_STATES { PG_START, PG_WAIT, PG_SEND };
 int Playground_Tick(int cur_state) {
+    static int move = 10;
     switch (cur_state) {
         case PG_START:
             cur_state = PG_WAIT;
@@ -38,15 +39,18 @@ int Playground_Tick(int cur_state) {
         case PG_WAIT:
             break;
         case PG_SEND:
-            struct MouseEvent data = {
-                .keys = 0x00,
-                .x = 0,
-                .y = 0
-            };
-            sendMouseEvent(&queue, &data);
+            sendMouseEvent(&queue, 0x00, move, 0);
+            move *= -1;
             break;
     }
 }
+
+struct TaskStruct {
+    int16_t period_ms;
+    int32_t last_ms;
+    int (*tick_fn)(int);
+    int cur_state;
+};
 
 int main() {
     init();
@@ -54,9 +58,8 @@ int main() {
 
     uint32_t last_ms = to_ms_since_boot(get_absolute_time());
 
-    #define NUM_SMS 1
     struct TaskStruct tasks[NUM_SMS];
-    tasks[0].period_ms = 100;
+    tasks[0].period_ms = 1000;
     tasks[0].last_ms = last_ms;
     tasks[0].tick_fn = Playground_Tick;
     tasks[0].cur_state = PG_START;
