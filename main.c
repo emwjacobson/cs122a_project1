@@ -19,6 +19,7 @@ void init() {
 }
 
 enum PG_STATES { PG_START, PG_WAIT, PG_SEND };
+int move = 20;
 int Playground_Tick(int cur_state) {
     switch (cur_state) {
         case PG_START:
@@ -38,7 +39,8 @@ int Playground_Tick(int cur_state) {
         case PG_WAIT:
             break;
         case PG_SEND:
-            sendMouseEvent(&queue, 0x00, -10, 0);
+            sendMouseEvent(&queue, 0x00, move, 0);
+            move *= -1;
             break;
     }
 
@@ -109,13 +111,13 @@ int main() {
         // Process mouse movement items in the queue
         // If ready to send HID data and queue has items to process
         if (tud_hid_ready() ) {
-            // struct MouseEvent data;
-            // bool item = queue_try_remove(&queue, &data);
+            struct MouseEvent data;
+            bool item = queue_try_remove(&queue, &data);
 
-            tud_hid_mouse_report(REPORT_ID_MOUSE, 0x00, 10, 0, 0, 0);
-            // if (item)
-            //     tud_hid_mouse_report(REPORT_ID_MOUSE, data.keys, data.x, data.y, 0, 0);
+            if (item)
+                tud_hid_mouse_report(REPORT_ID_MOUSE, data.keys, data.x, data.y, 0, 0);
         }
+        tud_task();
     }
 }
 
