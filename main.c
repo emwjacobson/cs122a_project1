@@ -20,7 +20,6 @@ void init() {
 
 enum PG_STATES { PG_START, PG_WAIT, PG_SEND };
 int Playground_Tick(int cur_state) {
-    static int move = 10;
     switch (cur_state) {
         case PG_START:
             cur_state = PG_WAIT;
@@ -39,10 +38,11 @@ int Playground_Tick(int cur_state) {
         case PG_WAIT:
             break;
         case PG_SEND:
-            sendMouseEvent(&queue, 0x00, move, 0);
-            move *= -1;
+            sendMouseEvent(&queue, 0x00, -10, 0);
             break;
     }
+
+    return cur_state;
 }
 
 enum LED_STATES { LED_START, LED_TOGGLE };
@@ -61,14 +61,16 @@ int LED_Tick(int cur_state) {
         case LED_START:
             break;
         case LED_TOGGLE:
-            gpio_put(LED_PIN, ~gpio_get(LED_PIN));
+            gpio_put(LED_PIN, !gpio_get(LED_PIN));
             break;
     }
+
+    return cur_state;
 }
 
 struct TaskStruct {
-    int16_t period_ms;
-    int32_t last_ms;
+    int period_ms;
+    int last_ms;
     int (*tick_fn)(int);
     int cur_state;
 };
@@ -77,38 +79,42 @@ int main() {
     init();
     tusb_init();
 
-    uint32_t last_ms = to_ms_since_boot(get_absolute_time());
-
     struct TaskStruct tasks[NUM_SMS];
     // *** DONT FORGET TO MODIFY NUM_SMS ***
 
-    // Playground
-    tasks[0].period_ms = 100;
-    tasks[0].last_ms = last_ms;
-    tasks[0].tick_fn = Playground_Tick;
-    tasks[0].cur_state = PG_START;
-
     // LED Blinking
-    tasks[1].period_ms = 1000;
-    tasks[1].last_ms = last_ms;
-    tasks[1].tick_fn = LED_Tick;
-    tasks[1].cur_state = LED_START;
+    tasks[0].period_ms = 100;
+    tasks[0].last_ms = 0;
+    tasks[0].tick_fn = &LED_Tick;
+    tasks[0].cur_state = LED_START;
+
+    // Playground
+    tasks[1].period_ms = 100;
+    tasks[1].last_ms = 0;
+    tasks[1].tick_fn = Playground_Tick;
+    tasks[1].cur_state = PG_START;
+
+    uint32_t cur_ms;
 
     while(1) {
-        uint32_t cur_ms = to_ms_since_boot(get_absolute_time());
-        
+        cur_ms = to_ms_since_boot(get_absolute_time());
         for (int i=0; i<NUM_SMS;i++) {
-            if (cur_ms - last_ms > tasks[i].period_ms)
+            if (cur_ms - tasks[i].last_ms >= tasks[i].period_ms) {
                 tasks[i].cur_state = tasks[i].tick_fn(tasks[i].cur_state);
+                tasks[i].last_ms = cur_ms;
+            }
+            
         }
 
         // Process mouse movement items in the queue
         // If ready to send HID data and queue has items to process
-        if (tud_hid_ready() && !queue_is_empty(&queue)) {
-            struct MouseEvent data;
-            queue_try_remove(&queue, &data);
+        if (tud_hid_ready() ) {
+            // struct MouseEvent data;
+            // bool item = queue_try_remove(&queue, &data);
 
-            tud_hid_mouse_report(REPORT_ID_MOUSE, data.keys, data.x, data.y, 0, 0);
+            tud_hid_mouse_report(REPORT_ID_MOUSE, 0x00, 10, 0, 0, 0);
+            // if (item)
+            //     tud_hid_mouse_report(REPORT_ID_MOUSE, data.keys, data.x, data.y, 0, 0);
         }
     }
 }

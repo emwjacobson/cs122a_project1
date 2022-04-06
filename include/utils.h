@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "pico/stdlib.h"
+#include "pico/util/queue.h"
 
 struct MouseEvent {
     uint8_t keys;
