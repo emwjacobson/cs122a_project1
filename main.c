@@ -6,32 +6,52 @@
 
 #include <stdint.h>
 #include "pico/stdlib.h"
+#include "pico/util/queue.h"
 #include "tusb.h"
 #include "usb_descriptors.h"
 
 #define LED_PIN PICO_DEFAULT_LED_PIN
-#define PERIOD_MS 10
+#define POLL_PERIOD_MS 100
+
+struct MouseEvent {
+    uint8_t x;
+    uint8_t y;
+};
+
+queue_t queue;
 
 void init() {
     gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);
     gpio_put(LED_PIN, 0);
+
+    queue_init(&queue, sizeof(struct MouseEvent), 10);
 }
 
 int main() {
-
     init();
     tusb_init();
 
-    int32_t last = to_ms_since_boot(get_absolute_time());
-    while (true) {
-        if (to_ms_since_boot(get_absolute_time()) - last >= PERIOD_MS) {
-            if (tud_hid_ready())
-                tud_hid_mouse_report(REPORT_ID_MOUSE, 0x00, 5, 0, 0, 0);
-            gpio_put(LED_PIN, !gpio_get(LED_PIN));
-            last = to_ms_since_boot(get_absolute_time());
+    uint32_t last_ms = to_ms_since_boot(get_absolute_time());
+    while(1) {
+        uint32_t cur_ms = to_ms_since_boot(get_absolute_time());
+        if (cur_ms - last_ms > POLL_PERIOD_MS) {
+            struct MouseEvent data = {
+                .x = 10,
+                .y = 0
+            };
+            bool res = queue_try_add(&queue, &data);
+            last_ms = cur_ms;
         }
-        tud_task();
+
+        // Process mouse movement items in the queue
+        // If ready to send HID data and queue has items to process
+        if (tud_hid_ready() && !queue_is_empty(&queue)) {
+            struct MouseEvent data;
+            queue_try_remove(&queue, &data);
+
+            tud_hid_mouse_report(REPORT_ID_MOUSE, 0x00, data.x, data.y, 0, 0);
+        }
     }
 }
 
