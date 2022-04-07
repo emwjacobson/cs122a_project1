@@ -18,29 +18,39 @@ void init() {
     queue_init(&queue, sizeof(struct MouseEvent), 10);
 }
 
-enum PG_STATES { PG_START, PG_WAIT, PG_SEND };
-int move = 20;
+enum PG_STATES { PG_START, PG_UP, PG_RIGHT, PG_DOWN, PG_LEFT };
 int Playground_Tick(int cur_state) {
     switch (cur_state) {
         case PG_START:
-            cur_state = PG_WAIT;
+            cur_state = PG_UP;
             break;
-        case PG_WAIT:
-            cur_state = PG_SEND;
+        case PG_UP:
+            cur_state = PG_RIGHT;
             break;
-        case PG_SEND:
-            cur_state = PG_WAIT;
+        case PG_RIGHT:
+            cur_state = PG_DOWN;
+            break;
+        case PG_DOWN:
+            cur_state = PG_LEFT;
+            break;
+        case PG_LEFT:
+            cur_state = PG_UP;
             break;
     }
 
+
     switch (cur_state) {
-        case PG_START:
+        case PG_UP:
+            sendMouseEvent(&queue, 0x00, 0, -50);
             break;
-        case PG_WAIT:
+        case PG_RIGHT:
+            sendMouseEvent(&queue, 0x00, 50, 0);
             break;
-        case PG_SEND:
-            sendMouseEvent(&queue, 0x00, move, 0);
-            move *= -1;
+        case PG_DOWN:
+            sendMouseEvent(&queue, 0x00, 0, 50);
+            break;
+        case PG_LEFT:
+            sendMouseEvent(&queue, 0x00, -50, 0);
             break;
     }
 
