@@ -16,4 +16,4 @@ target_include_directories(main PUBLIC
         ${CMAKE_CURRENT_LIST_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
-target_link_libraries(main PUBLIC pico_stdlib tinyusb_device tinyusb_board)
+target_link_libraries(main PUBLIC pico_stdlib tinyusb_device tinyusb_board hardware_adc)
