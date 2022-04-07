@@ -11,6 +11,7 @@
 queue_t queue;
 
 void init() {
+    stdio_init_all();
     gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);
     gpio_put(LED_PIN, 0);
@@ -74,6 +75,8 @@ int LED_Tick(int cur_state) {
             break;
         case LED_TOGGLE:
             gpio_put(LED_PIN, !gpio_get(LED_PIN));
+            tud_cdc_write_str("Hello World!");
+            tud_cdc_write_flush();
             break;
     }
 
@@ -88,6 +91,8 @@ struct TaskStruct {
 };
 
 int main() {
+    sleep_ms(1000);
+
     init();
     tusb_init();
 
