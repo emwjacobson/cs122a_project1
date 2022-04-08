@@ -8,6 +8,7 @@
 
 #define LED_PIN PICO_DEFAULT_LED_PIN
 #define NUM_SMS 3
+#define DEADZONE 50
 #define ADC0 26
 #define ADC1 27
 
@@ -31,8 +32,8 @@ void init() {
 }
 
 // ***** Global SM Variables *****
-uint16_t js_x;
-uint16_t js_y;
+int16_t js_x;
+int16_t js_y;
 // *******************************
 
 // *****
@@ -69,6 +70,7 @@ int LED_Tick(int cur_state) {
 // *****
 enum JS_STATES { JS_START, JS_POLL };
 int JS_Tick(int cur_state) {
+    static int16_t raw_x, raw_y;
     switch(cur_state) {
         case JS_START:
             cur_state = JS_POLL;
@@ -80,9 +82,24 @@ int JS_Tick(int cur_state) {
 
     switch(cur_state) {
         case JS_POLL:
-            js_x = readADC(1); // X is ADC1
-            js_y = readADC(0); // Y is ADC0
-            
+            raw_x = readADC(1) - 2048; // X is ADC1
+            raw_y = readADC(0) - 2048; // Y is ADC0
+
+            if (raw_x <= DEADZONE && raw_x >= -DEADZONE) {
+                raw_x = 0;
+            } else {
+                raw_x = raw_x;
+            }
+
+            if (raw_y <= DEADZONE && raw_y >= -DEADZONE) {
+                raw_y = 0;
+            } else {
+                raw_y = raw_y;
+            }
+
+            js_x = map(raw_x, -2048, 2048, -20, 20);
+            js_y = map(raw_y, -2048, 2048, -20, 20);
+
             break;
     }
 
@@ -93,38 +110,24 @@ int JS_Tick(int cur_state) {
 // Playground SM
 // Just a place to test new things
 // *****
-enum PG_STATES { PG_START, PG_UP, PG_RIGHT, PG_DOWN, PG_LEFT };
+enum PG_STATES { PG_START, PG_MOVE };
 int Playground_Tick(int cur_state) {
     switch (cur_state) {
         case PG_START:
-            cur_state = PG_UP;
+            cur_state = PG_MOVE;
             break;
-        case PG_UP:
-            cur_state = PG_RIGHT;
-            break;
-        case PG_RIGHT:
-            cur_state = PG_DOWN;
-            break;
-        case PG_DOWN:
-            cur_state = PG_LEFT;
-            break;
-        case PG_LEFT:
-            cur_state = PG_UP;
+        case PG_MOVE:
+            cur_state = PG_MOVE;
             break;
     }
 
     switch (cur_state) {
-        case PG_UP:
-            sendMouseEvent(&queue, 0x00, 0, -50);
+        case PG_START:
+            cur_state = PG_MOVE;
             break;
-        case PG_RIGHT:
-            sendMouseEvent(&queue, 0x00, 50, 0);
-            break;
-        case PG_DOWN:
-            sendMouseEvent(&queue, 0x00, 0, 50);
-            break;
-        case PG_LEFT:
-            sendMouseEvent(&queue, 0x00, -50, 0);
+        case PG_MOVE:
+            cur_state = PG_MOVE;
+            sendMouseEvent(&queue, 0x00, js_x, js_y);
             break;
     }
 
@@ -154,13 +157,13 @@ int main() {
     tasks[0].cur_state = LED_START;
 
     // Joystick Polling
-    tasks[1].period_ms = 100;
+    tasks[1].period_ms = 10;
     tasks[1].last_ms = 0;
     tasks[1].tick_fn = &JS_Tick;
     tasks[1].cur_state = JS_START;
 
     // Playground
-    tasks[2].period_ms = 100;
+    tasks[2].period_ms = 20;
     tasks[2].last_ms = 0;
     tasks[2].tick_fn = &Playground_Tick;
     tasks[2].cur_state = PG_START;
