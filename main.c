@@ -11,6 +11,7 @@
 #define DEADZONE 50
 #define ADC0 26
 #define ADC1 27
+#define JS_BUTTON 15
 
 queue_t queue;
 
@@ -22,10 +23,13 @@ void init() {
     gpio_set_dir(LED_PIN, GPIO_OUT);
     gpio_put(LED_PIN, 0);
 
-    // Initialize ADCs
+    // Initialize ADCs and button port
     adc_init();
     adc_gpio_init(ADC0);
     adc_gpio_init(ADC1);
+    gpio_init(JS_BUTTON);
+    gpio_set_dir(JS_BUTTON, GPIO_IN);
+    gpio_pull_up(JS_BUTTON);
 
     // Initialize queue for mouse events
     queue_init(&queue, sizeof(struct MouseEvent), 10);
@@ -34,6 +38,7 @@ void init() {
 // ***** Global SM Variables *****
 int16_t js_x;
 int16_t js_y;
+bool js_button;
 // *******************************
 
 // *****
@@ -100,6 +105,8 @@ int JS_Tick(int cur_state) {
             js_x = map(raw_x, -2048, 2048, -20, 20);
             js_y = map(raw_y, -2048, 2048, -20, 20);
 
+            js_button = gpio_get(JS_BUTTON);
+
             break;
     }
 
@@ -127,7 +134,7 @@ int Playground_Tick(int cur_state) {
             break;
         case PG_MOVE:
             cur_state = PG_MOVE;
-            sendMouseEvent(&queue, 0x00, js_x, js_y);
+            sendMouseEvent(&queue, 0x00 & js_button, js_x, js_y);
             break;
     }
 
@@ -171,7 +178,7 @@ int main() {
     int32_t cur_ms;
 
     int32_t last_push = 0;
-    char time[32];
+    char* message[64];
 
     while(1) {
         cur_ms = to_ms_since_boot(get_absolute_time());
@@ -192,7 +199,8 @@ int main() {
             if (item) {
                 cur_ms = to_ms_since_boot(get_absolute_time());
                 tud_hid_mouse_report(REPORT_ID_MOUSE, data.keys, data.x, data.y, 0, 0);
-                snprintf(time, 32, "%i", (cur_ms - last_push));
+                snprintf(message, 64, "Mouse: %i  X: %i  Y: %i\n", data.keys, data.x, data.y);
+                logLine(message);
                 last_push = cur_ms;
             }
         }
