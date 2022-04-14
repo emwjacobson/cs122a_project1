@@ -7,11 +7,18 @@
 #include "hardware/adc.h"
 
 #define LED_PIN PICO_DEFAULT_LED_PIN
-#define NUM_SMS 3
+#define NUM_SMS 4
 #define DEADZONE 50
 #define ADC0 26
 #define ADC1 27
 #define JS_BUTTON 15
+
+// ***** Global SM Variables *****
+int16_t js_x;
+int16_t js_y;
+bool js_button;
+bool pan_mode;
+// *******************************
 
 queue_t queue;
 
@@ -33,13 +40,9 @@ void init() {
 
     // Initialize queue for mouse events
     queue_init(&queue, sizeof(struct MouseEvent), 10);
-}
 
-// ***** Global SM Variables *****
-int16_t js_x;
-int16_t js_y;
-bool js_button;
-// *******************************
+    pan_mode = true;
+}
 
 // *****
 // LED SM
@@ -75,7 +78,9 @@ int LED_Tick(int cur_state) {
 // *****
 enum JS_STATES { JS_START, JS_POLL };
 int JS_Tick(int cur_state) {
+    static bool js_button;
     static int16_t raw_x, raw_y;
+
     switch(cur_state) {
         case JS_START:
             cur_state = JS_POLL;
@@ -105,11 +110,46 @@ int JS_Tick(int cur_state) {
             js_x = map(raw_x, -2048, 2048, -20, 20);
             js_y = map(raw_y, -2048, 2048, -20, 20);
 
-            js_button = gpio_get(JS_BUTTON);
+            // Button is pulled up, so make sure to invert the input to get
+            // the "logical" usage of button. 1 = pressed, 0 = unpressed
+            js_button = !gpio_get(JS_BUTTON);
 
             break;
     }
 
+    return cur_state;
+}
+
+// *****
+// Mode SM
+// Used joystick button to change mode
+// *****
+enum MD_STATES { MD_START, MD_WAIT, MD_HOLD, MD_TOGGLE };
+int Mode_Tick(int cur_state) {
+    switch (cur_state) {
+        case MD_START:
+            cur_state = MD_WAIT;
+            break;
+        case MD_WAIT:
+            cur_state = js_button ? MD_HOLD : MD_WAIT;
+            break;
+        case MD_HOLD:
+            cur_state = js_button ? MD_HOLD : MD_WAIT;
+            break;
+        case MD_TOGGLE:
+            cur_state = MD_WAIT;
+            break;
+    }
+
+    switch (cur_state) {
+        case MD_WAIT:
+            break;
+        case MD_HOLD:
+            break;
+        case MD_TOGGLE:
+            pan_mode = !pan_mode;
+            break;
+    }
     return cur_state;
 }
 
@@ -129,12 +169,9 @@ int Move_Tick(int cur_state) {
     }
 
     switch (cur_state) {
-        case MV_START:
-            cur_state = MV_MOVE;
-            break;
         case MV_MOVE:
-            cur_state = MV_MOVE;
-            sendMouseEvent(&queue, 0x00 & js_button, js_x, js_y);
+            // TODO: Implement `pan_mode` boolean to send different input events
+            sendMouseEvent(&queue, 0x00, js_x, js_y);
             break;
     }
 
@@ -169,16 +206,23 @@ int main() {
     tasks[1].tick_fn = &JS_Tick;
     tasks[1].cur_state = JS_START;
 
-    // Move Mouse
-    tasks[2].period_ms = 20;
+    // Poll Joystick Button
+    tasks[2].period_ms = 100;
     tasks[2].last_ms = 0;
-    tasks[2].tick_fn = &Move_Tick;
-    tasks[2].cur_state = MV_START;
+    tasks[2].tick_fn = &Mode_Tick;
+    tasks[2].cur_state = MD_START;
+
+    // Move Mouse
+    tasks[3].period_ms = 20;
+    tasks[3].last_ms = 0;
+    tasks[3].tick_fn = &Move_Tick;
+    tasks[3].cur_state = MV_START;
+
 
     int32_t cur_ms;
 
     int32_t last_push = 0;
-    char* message[64];
+    char message[64];
 
     while(1) {
         cur_ms = to_ms_since_boot(get_absolute_time());
