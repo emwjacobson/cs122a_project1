@@ -114,26 +114,26 @@ int JS_Tick(int cur_state) {
 }
 
 // *****
-// Playground SM
-// Just a place to test new things
+// Move SM
+// This adds the mouse movement event to the queue
 // *****
-enum PG_STATES { PG_START, PG_MOVE };
-int Playground_Tick(int cur_state) {
+enum MV_STATES { MV_START, MV_MOVE };
+int Move_Tick(int cur_state) {
     switch (cur_state) {
-        case PG_START:
-            cur_state = PG_MOVE;
+        case MV_START:
+            cur_state = MV_MOVE;
             break;
-        case PG_MOVE:
-            cur_state = PG_MOVE;
+        case MV_MOVE:
+            cur_state = MV_MOVE;
             break;
     }
 
     switch (cur_state) {
-        case PG_START:
-            cur_state = PG_MOVE;
+        case MV_START:
+            cur_state = MV_MOVE;
             break;
-        case PG_MOVE:
-            cur_state = PG_MOVE;
+        case MV_MOVE:
+            cur_state = MV_MOVE;
             sendMouseEvent(&queue, 0x00 & js_button, js_x, js_y);
             break;
     }
@@ -169,11 +169,11 @@ int main() {
     tasks[1].tick_fn = &JS_Tick;
     tasks[1].cur_state = JS_START;
 
-    // Playground
+    // Move Mouse
     tasks[2].period_ms = 20;
     tasks[2].last_ms = 0;
-    tasks[2].tick_fn = &Playground_Tick;
-    tasks[2].cur_state = PG_START;
+    tasks[2].tick_fn = &Move_Tick;
+    tasks[2].cur_state = MV_START;
 
     int32_t cur_ms;
 
