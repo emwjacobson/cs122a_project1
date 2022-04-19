@@ -17,7 +17,11 @@
 int16_t js_x;
 int16_t js_y;
 bool js_button;
-bool pan_mode;
+enum MODES {
+    MODE_PAN = 0,
+    MODE_ROTATE,
+    MODE_MAX
+} mode;
 // *******************************
 
 queue_t queue;
@@ -41,7 +45,7 @@ void init() {
     // Initialize queue for mouse events
     queue_init(&queue, sizeof(struct MouseEvent), 10);
 
-    pan_mode = true;
+    mode = MODE_PAN;
 }
 
 // *****
@@ -64,7 +68,8 @@ int LED_Tick(int cur_state) {
         case LED_START:
             break;
         case LED_TOGGLE:
-            gpio_put(LED_PIN, !gpio_get(LED_PIN));
+            // gpio_put(LED_PIN, !gpio_get(LED_PIN));
+            gpio_put(LED_PIN, mode == MODE_PAN);
             break;
     }
 
@@ -78,7 +83,6 @@ int LED_Tick(int cur_state) {
 // *****
 enum JS_STATES { JS_START, JS_POLL };
 int JS_Tick(int cur_state) {
-    static bool js_button;
     static int16_t raw_x, raw_y;
 
     switch(cur_state) {
@@ -131,10 +135,10 @@ int Mode_Tick(int cur_state) {
             cur_state = MD_WAIT;
             break;
         case MD_WAIT:
-            cur_state = js_button ? MD_HOLD : MD_WAIT;
+            cur_state = (js_button == 1 ? MD_HOLD : MD_WAIT);
             break;
         case MD_HOLD:
-            cur_state = js_button ? MD_HOLD : MD_WAIT;
+            cur_state = (js_button? MD_HOLD : MD_TOGGLE);
             break;
         case MD_TOGGLE:
             cur_state = MD_WAIT;
@@ -147,15 +151,20 @@ int Mode_Tick(int cur_state) {
         case MD_HOLD:
             break;
         case MD_TOGGLE:
-            pan_mode = !pan_mode;
+            mode = (mode + 1) % (MODE_MAX);
             break;
     }
+
     return cur_state;
 }
 
 // *****
 // Move SM
-// This adds the mouse movement event to the queue
+// This adds the mouse movement event to the queue.
+// A mouse movement should consist of a few different stages:
+//      Movement Preamble: The initial press keystrokes (eg send a SHIFT key so mouse movements pan instead of rotate)
+//      Movement Action: The actual mouse events
+//      Movement Epilogue: The release of the keystrokes sent in the preamble
 // *****
 enum MV_STATES { MV_START, MV_MOVE };
 int Move_Tick(int cur_state) {
@@ -243,8 +252,8 @@ int main() {
             if (item) {
                 cur_ms = to_ms_since_boot(get_absolute_time());
                 tud_hid_mouse_report(REPORT_ID_MOUSE, data.keys, data.x, data.y, 0, 0);
-                snprintf(message, 64, "Mouse: %i  X: %i  Y: %i\n", data.keys, data.x, data.y);
-                logLine(message);
+                // snprintf(message, 64, "Mouse: %i  X: %i  Y: %i\n", data.keys, data.x, data.y);
+                // logLine(message);
                 last_push = cur_ms;
             }
         }
