@@ -43,7 +43,7 @@ void init() {
     gpio_pull_up(JS_BUTTON);
 
     // Initialize queue for mouse events
-    queue_init(&queue, sizeof(struct MouseEvent), 10);
+    queue_init(&queue, sizeof(struct HIDEvent), 10);
 
     mode = MODE_PAN;
 }
@@ -166,21 +166,56 @@ int Mode_Tick(int cur_state) {
 //      Movement Action: The actual mouse events
 //      Movement Epilogue: The release of the keystrokes sent in the preamble
 // *****
-enum MV_STATES { MV_START, MV_MOVE };
+enum MV_STATES { MV_START, MV_WAIT, MV_PREAMBLE, MV_ACTION, MV_EPILOGUE };
 int Move_Tick(int cur_state) {
+    static uint8_t active_keys[6] = { 0, 0, 0, 0, 0 };
     switch (cur_state) {
         case MV_START:
-            cur_state = MV_MOVE;
+            cur_state = MV_WAIT;
             break;
-        case MV_MOVE:
-            cur_state = MV_MOVE;
+        case MV_WAIT:
+            // Wait for a movement that != 0
+            if (js_x != 0 || js_y != 0) {
+                cur_state = MV_PREAMBLE;
+            } else {
+                cur_state = MV_WAIT;
+            }
+            break;
+        case MV_PREAMBLE:
+            cur_state = MV_ACTION;
+            break;
+        case MV_ACTION:
+            if (js_x != 0 || js_y != 0) {
+                cur_state = MV_ACTION;
+            } else {
+                cur_state = MV_EPILOGUE;
+            }
+            break;
+        case MV_EPILOGUE:
+            cur_state = MV_WAIT;
             break;
     }
 
     switch (cur_state) {
-        case MV_MOVE:
-            // TODO: Implement `pan_mode` boolean to send different input events
-            sendMouseEvent(&queue, 0x00, js_x, js_y);
+        case MV_START:
+            break;
+        case MV_WAIT:
+            break;
+        case MV_PREAMBLE:
+            if (mode == MODE_PAN) {
+                // Press left shift
+                sendKeyboardEvent(&queue, KEYBOARD_MODIFIER_LEFTCTRL, active_keys);
+            }
+            break;
+        case MV_ACTION:
+            sendMouseEvent(&queue, MOUSE_BUTTON_MIDDLE, js_x, js_y);
+            break;
+        case MV_EPILOGUE:
+            if (mode == MODE_PAN) {
+                // Release left shift
+                sendKeyboardEvent(&queue, 0x00, active_keys);
+            }
+            sendMouseEvent(&queue, 0x00, 0x00, 0x00);
             break;
     }
 
@@ -246,14 +281,24 @@ int main() {
         // Process mouse movement items in the queue
         // If ready to send HID data and queue has items to process
         if (tud_hid_ready() && !queue_is_empty(&queue)) {
-            struct MouseEvent data;
+            struct HIDEvent data;
             bool item = queue_try_remove(&queue, &data);
+
+            struct KeyboardEvent k_data = data.keyboard_data;
+            struct MouseEvent m_data = data.mouse_data;
 
             if (item) {
                 cur_ms = to_ms_since_boot(get_absolute_time());
-                tud_hid_mouse_report(REPORT_ID_MOUSE, data.keys, data.x, data.y, 0, 0);
-                // snprintf(message, 64, "Mouse: %i  X: %i  Y: %i\n", data.keys, data.x, data.y);
-                // logLine(message);
+                switch(data.type) {
+                    case EVENT_KEYBOARD:
+                        tud_hid_keyboard_report(REPORT_ID_KEYBOARD, k_data.modifiers, k_data.keys);
+                        break;
+                    case EVENT_MOUSE:
+                        tud_hid_mouse_report(REPORT_ID_MOUSE, m_data.keys, m_data.x, m_data.y, 0, 0);
+                        snprintf(message, 64, "Mouse: %i  X: %i  Y: %i\n", m_data.keys, m_data.x, m_data.y);
+                        logLine(message);
+                        break;
+                }
                 last_push = cur_ms;
             }
         }
