@@ -15,11 +15,29 @@
  * @return `true` when item successfully added to queue, `false` otherwise
  */
 bool sendMouseEvent(queue_t *queue, uint8_t keys, uint8_t x, uint8_t y) {
-    struct MouseEvent data = {
-        .keys = keys,
-        .x = x,
-        .y = y
+    struct HIDEvent data = {
+        .type = EVENT_MOUSE,
+        .mouse_data = {
+            .keys = keys,
+            .x = x,
+            .y = y
+        },
+        .keyboard_data = { 0 }
+            
     };
+    return queue_try_add(queue, &data);
+}
+
+bool sendKeyboardEvent(queue_t *queue, uint8_t modifiers, uint8_t keys[6]) {
+    struct HIDEvent data = {
+        .type = EVENT_KEYBOARD,
+        .mouse_data = { 0 },
+        .keyboard_data = {
+            .modifiers = modifiers
+            // .keys = keys
+        }
+    };
+    memcpy(data.keyboard_data.keys, keys, 6*sizeof(*keys));
     return queue_try_add(queue, &data);
 }
 

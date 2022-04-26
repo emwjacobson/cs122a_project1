@@ -7,9 +7,22 @@
 #include "hardware/adc.h"
 
 #define LED_PIN PICO_DEFAULT_LED_PIN
-#define NUM_SMS 3
+#define NUM_SMS 4
+#define DEADZONE 50
 #define ADC0 26
 #define ADC1 27
+#define JS_BUTTON 15
+
+// ***** Global SM Variables *****
+int16_t js_x;
+int16_t js_y;
+bool js_button;
+enum MODES {
+    MODE_PAN = 0,
+    MODE_ROTATE,
+    MODE_MAX
+} mode;
+// *******************************
 
 queue_t queue;
 
@@ -21,19 +34,19 @@ void init() {
     gpio_set_dir(LED_PIN, GPIO_OUT);
     gpio_put(LED_PIN, 0);
 
-    // Initialize ADCs
+    // Initialize ADCs and button port
     adc_init();
     adc_gpio_init(ADC0);
     adc_gpio_init(ADC1);
+    gpio_init(JS_BUTTON);
+    gpio_set_dir(JS_BUTTON, GPIO_IN);
+    gpio_pull_up(JS_BUTTON);
 
     // Initialize queue for mouse events
-    queue_init(&queue, sizeof(struct MouseEvent), 10);
-}
+    queue_init(&queue, sizeof(struct HIDEvent), 10);
 
-// ***** Global SM Variables *****
-uint16_t js_x;
-uint16_t js_y;
-// *******************************
+    mode = MODE_PAN;
+}
 
 // *****
 // LED SM
@@ -55,7 +68,8 @@ int LED_Tick(int cur_state) {
         case LED_START:
             break;
         case LED_TOGGLE:
-            gpio_put(LED_PIN, !gpio_get(LED_PIN));
+            // gpio_put(LED_PIN, !gpio_get(LED_PIN));
+            gpio_put(LED_PIN, mode == MODE_PAN);
             break;
     }
 
@@ -69,6 +83,8 @@ int LED_Tick(int cur_state) {
 // *****
 enum JS_STATES { JS_START, JS_POLL };
 int JS_Tick(int cur_state) {
+    static int16_t raw_x, raw_y;
+
     switch(cur_state) {
         case JS_START:
             cur_state = JS_POLL;
@@ -80,9 +96,28 @@ int JS_Tick(int cur_state) {
 
     switch(cur_state) {
         case JS_POLL:
-            js_x = readADC(1); // X is ADC1
-            js_y = readADC(0); // Y is ADC0
-            
+            raw_x = readADC(1) - 2048; // X is ADC1
+            raw_y = readADC(0) - 2048; // Y is ADC0
+
+            if (raw_x <= DEADZONE && raw_x >= -DEADZONE) {
+                raw_x = 0;
+            } else {
+                raw_x = raw_x;
+            }
+
+            if (raw_y <= DEADZONE && raw_y >= -DEADZONE) {
+                raw_y = 0;
+            } else {
+                raw_y = raw_y;
+            }
+
+            js_x = map(raw_x, -2048, 2048, -20, 20);
+            js_y = map(raw_y, -2048, 2048, -20, 20);
+
+            // Button is pulled up, so make sure to invert the input to get
+            // the "logical" usage of button. 1 = pressed, 0 = unpressed
+            js_button = !gpio_get(JS_BUTTON);
+
             break;
     }
 
@@ -90,41 +125,97 @@ int JS_Tick(int cur_state) {
 }
 
 // *****
-// Playground SM
-// Just a place to test new things
+// Mode SM
+// Used joystick button to change mode
 // *****
-enum PG_STATES { PG_START, PG_UP, PG_RIGHT, PG_DOWN, PG_LEFT };
-int Playground_Tick(int cur_state) {
+enum MD_STATES { MD_START, MD_WAIT, MD_HOLD, MD_TOGGLE };
+int Mode_Tick(int cur_state) {
     switch (cur_state) {
-        case PG_START:
-            cur_state = PG_UP;
+        case MD_START:
+            cur_state = MD_WAIT;
             break;
-        case PG_UP:
-            cur_state = PG_RIGHT;
+        case MD_WAIT:
+            cur_state = (js_button == 1 ? MD_HOLD : MD_WAIT);
             break;
-        case PG_RIGHT:
-            cur_state = PG_DOWN;
+        case MD_HOLD:
+            cur_state = (js_button? MD_HOLD : MD_TOGGLE);
             break;
-        case PG_DOWN:
-            cur_state = PG_LEFT;
-            break;
-        case PG_LEFT:
-            cur_state = PG_UP;
+        case MD_TOGGLE:
+            cur_state = MD_WAIT;
             break;
     }
 
     switch (cur_state) {
-        case PG_UP:
-            sendMouseEvent(&queue, 0x00, 0, -50);
+        case MD_WAIT:
             break;
-        case PG_RIGHT:
-            sendMouseEvent(&queue, 0x00, 50, 0);
+        case MD_HOLD:
             break;
-        case PG_DOWN:
-            sendMouseEvent(&queue, 0x00, 0, 50);
+        case MD_TOGGLE:
+            mode = (mode + 1) % (MODE_MAX);
             break;
-        case PG_LEFT:
-            sendMouseEvent(&queue, 0x00, -50, 0);
+    }
+
+    return cur_state;
+}
+
+// *****
+// Move SM
+// This adds the mouse movement event to the queue.
+// A mouse movement should consist of a few different stages:
+//      Movement Preamble: The initial press keystrokes (eg send a SHIFT key so mouse movements pan instead of rotate)
+//      Movement Action: The actual mouse events
+//      Movement Epilogue: The release of the keystrokes sent in the preamble
+// *****
+enum MV_STATES { MV_START, MV_WAIT, MV_PREAMBLE, MV_ACTION, MV_EPILOGUE };
+int Move_Tick(int cur_state) {
+    static uint8_t active_keys[6] = { 0, 0, 0, 0, 0 };
+    switch (cur_state) {
+        case MV_START:
+            cur_state = MV_WAIT;
+            break;
+        case MV_WAIT:
+            // Wait for a movement that != 0
+            if (js_x != 0 || js_y != 0) {
+                cur_state = MV_PREAMBLE;
+            } else {
+                cur_state = MV_WAIT;
+            }
+            break;
+        case MV_PREAMBLE:
+            cur_state = MV_ACTION;
+            break;
+        case MV_ACTION:
+            if (js_x != 0 || js_y != 0) {
+                cur_state = MV_ACTION;
+            } else {
+                cur_state = MV_EPILOGUE;
+            }
+            break;
+        case MV_EPILOGUE:
+            cur_state = MV_WAIT;
+            break;
+    }
+
+    switch (cur_state) {
+        case MV_START:
+            break;
+        case MV_WAIT:
+            break;
+        case MV_PREAMBLE:
+            if (mode == MODE_PAN) {
+                // Press left shift
+                sendKeyboardEvent(&queue, KEYBOARD_MODIFIER_LEFTCTRL, active_keys);
+            }
+            break;
+        case MV_ACTION:
+            sendMouseEvent(&queue, MOUSE_BUTTON_MIDDLE, js_x, js_y);
+            break;
+        case MV_EPILOGUE:
+            if (mode == MODE_PAN) {
+                // Release left shift
+                sendKeyboardEvent(&queue, 0x00, active_keys);
+            }
+            sendMouseEvent(&queue, 0x00, 0x00, 0x00);
             break;
     }
 
@@ -154,21 +245,28 @@ int main() {
     tasks[0].cur_state = LED_START;
 
     // Joystick Polling
-    tasks[1].period_ms = 100;
+    tasks[1].period_ms = 10;
     tasks[1].last_ms = 0;
     tasks[1].tick_fn = &JS_Tick;
     tasks[1].cur_state = JS_START;
 
-    // Playground
+    // Poll Joystick Button
     tasks[2].period_ms = 100;
     tasks[2].last_ms = 0;
-    tasks[2].tick_fn = &Playground_Tick;
-    tasks[2].cur_state = PG_START;
+    tasks[2].tick_fn = &Mode_Tick;
+    tasks[2].cur_state = MD_START;
+
+    // Move Mouse
+    tasks[3].period_ms = 20;
+    tasks[3].last_ms = 0;
+    tasks[3].tick_fn = &Move_Tick;
+    tasks[3].cur_state = MV_START;
+
 
     int32_t cur_ms;
 
     int32_t last_push = 0;
-    char time[32];
+    char message[64];
 
     while(1) {
         cur_ms = to_ms_since_boot(get_absolute_time());
@@ -183,13 +281,24 @@ int main() {
         // Process mouse movement items in the queue
         // If ready to send HID data and queue has items to process
         if (tud_hid_ready() && !queue_is_empty(&queue)) {
-            struct MouseEvent data;
+            struct HIDEvent data;
             bool item = queue_try_remove(&queue, &data);
+
+            struct KeyboardEvent k_data = data.keyboard_data;
+            struct MouseEvent m_data = data.mouse_data;
 
             if (item) {
                 cur_ms = to_ms_since_boot(get_absolute_time());
-                tud_hid_mouse_report(REPORT_ID_MOUSE, data.keys, data.x, data.y, 0, 0);
-                snprintf(time, 32, "%i", (cur_ms - last_push));
+                switch(data.type) {
+                    case EVENT_KEYBOARD:
+                        tud_hid_keyboard_report(REPORT_ID_KEYBOARD, k_data.modifiers, k_data.keys);
+                        break;
+                    case EVENT_MOUSE:
+                        tud_hid_mouse_report(REPORT_ID_MOUSE, m_data.keys, m_data.x, m_data.y, 0, 0);
+                        snprintf(message, 64, "Mouse: %i  X: %i  Y: %i\n", m_data.keys, m_data.x, m_data.y);
+                        logLine(message);
+                        break;
+                }
                 last_push = cur_ms;
             }
         }
