@@ -262,9 +262,7 @@ int main() {
     tasks[3].tick_fn = &Move_Tick;
     tasks[3].cur_state = MV_START;
 
-
     int32_t cur_ms;
-
     int32_t last_push = 0;
     char message[64];
 
